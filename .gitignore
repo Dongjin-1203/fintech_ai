@@ -1,0 +1,10 @@
+# 가상환경
+.venv/
+env/
+
+# 결과 데이터
+stock_rag_chatbot/notebooks/data/
+*.json
+
+# 기타
+.env
