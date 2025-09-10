@@ -22,8 +22,9 @@ import pandas as pd
 import dart_fss as dart
 import requests
 import json
-import warnings
 import yfinance as yf
+import re
+import warnings
 warnings.filterwarnings('ignore')
 
 # 환경변수 설정
@@ -70,6 +71,86 @@ class Data_pipeline:
         stock_data = pd.DataFrame(stock_data)
         return stock_data
     
+    def get_naver_news_api(self, company_name, naver_id, naver_api_key):
+        url = "https://openapi.naver.com/v1/search/news.json"
+        headers = {
+            "X-Naver-Client-Id": naver_id,
+            "X-Naver-Client-Secret": naver_api_key
+        }
+        params = {
+            "query": f"{company_name} 주식",
+            "display": 20,
+            "sort": "date"
+        }
+        
+        def clean_html_tags(text):
+            """HTML 태그를 완전히 제거하는 함수"""
+            if not text:
+                return ""
+            # 모든 HTML 태그 제거
+            clean = re.compile('<.*?>')
+            return re.sub(clean, '', text)
+        
+        try:
+            response = requests.get(url, headers=headers, params=params)
+            print(f"Response status: {response.status_code}")
+            
+            if response.status_code == 200:
+                print("요청 성공!")
+                
+                # 직접 JSON으로 파싱
+                news_data = response.json()
+                
+                # 뉴스 데이터를 저장할 리스트 생성 (수정된 부분)
+                news_list = []
+                
+                # 각 뉴스 아이템에서 필요한 정보를 추출
+                for item in news_data['items']:
+                    title = clean_html_tags(item['title'])
+                    link = item['link']
+                    description = clean_html_tags(item['description'])
+                    pubDate = item['pubDate']
+
+                    # 개별 뉴스를 딕셔너리로 생성
+                    news_dict = {
+                        "제목": title,
+                        "링크": link,
+                        "기사요약": description,
+                        "작성일자": pubDate
+                    }
+                    
+                    # 리스트에 추가
+                    news_list.append(news_dict)
+                    
+                    # 출력 (선택사항)
+                    print(f"Title: {title}")
+                    print(f"Link: {link}")
+                    print(f"Description: {description}")
+                    print(f"Published Date: {pubDate}")
+                    print("\n")
+                
+                # 전체 리스트로 DataFrame 생성 (수정된 부분)
+                news_df = pd.DataFrame(news_list)
+                print(f"총 {len(news_df)}개의 뉴스를 DataFrame으로 생성했습니다.")
+                
+                # 성공 시 DataFrame 반환
+                return news_df
+                
+            else:
+                print(f"Error Code: {response.status_code}")
+                print(f"Error Message: {response.text}")
+                return None
+                
+        except requests.exceptions.RequestException as e:
+            print(f"요청 중 오류 발생: {e}")
+            return None
+        except json.JSONDecodeError as e:
+            print(f"JSON 파싱 오류: {e}")
+            return None
+        except Exception as e:
+            print(f"예상치 못한 오류: {e}")
+            return None
+    
 def main():
     # 필요 변수 설장
     corp_code = '00126380'
@@ -80,6 +161,11 @@ def main():
             'bgn_de' : '20250101' ## 사업보고서 시작일!
         }
     
+    # 뉴스 크롤링 관련 변수
+    company_name = "삼성전자"
+    naver_id = os.getenv("naver_id")
+    naver_api_key = os.getenv("naver_api_key")
+
     pipeline = Data_pipeline(params=params)
 
     # 기업 정보 저장 결과
@@ -96,15 +182,20 @@ def main():
     print("="*14)
     # print(df_imsi) 
     file_path = f"stock_rag_chatbot/notebooks/data/csv/{corp_code}_report_list_test.csv"
+    df_imsi.to_csv(file_path, index=False)
 
     # 주식 데이터 수집
-    corp_list = ['005930.KS', '000660.KS', '035420.KS']
+    corp_list = ['005930.KS', '000660.KS', '097230.KS']
     
     for corp_name in corp_list:
         stock_data_path = f"stock_rag_chatbot/notebooks/data/csv/{corp_name}_stock_data_test.csv"
         stock_data = pipeline.collect_finance_data(corp_name= corp_name)
         stock_data.to_csv(stock_data_path, index=False)
 
-    df_imsi.to_csv(file_path, index=False)
+    # 뉴스데이터 수집(네이버)
+    naver_news_path = f"stock_rag_chatbot/notebooks/data/csv/{company_name}_naver_news_test.csv"
+    naver_news_df = pipeline.get_naver_news_api(company_name, naver_id, naver_api_key)
+    naver_news_df.to_csv(naver_news_path, index=False)
+    
 # 실행     
 main()
