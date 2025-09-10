@@ -41,22 +41,21 @@ else:
     dart.set_api_key(api_key=api_key)
     print("✅ DART API 키 설정 완료")
 
+def get_corp_code():
+    '''DART API로 기업 코드, 기업명 저장'''
+    corp_list = dart.api.filings.get_corp_code()
+    corp_df = pd.DataFrame.from_dict(corp_list)
+    corp_df = corp_df.dropna(subset = 'stock_code').sort_values('modify_date',ascending=False).reset_index(drop=True)
+    corp_df['done_YN'] = "N"
+    return corp_df
 class Data_pipeline:
-    def __init__(self, params):
-        self.url_json = "https://opendart.fss.or.kr/api/list.json"
-        self.params = params
-
-    def get_corp_code(self):
-        '''DART API로 기업 코드, 기업명 저장'''
-        corp_list = dart.api.filings.get_corp_code()
-        corp_df = pd.DataFrame.from_dict(corp_list)
-        corp_df = corp_df.dropna(subset = 'stock_code').sort_values('modify_date',ascending=False).reset_index(drop=True)
-        corp_df['done_YN'] = "N"
-        return corp_df
+    def __init__(self):
+        pass
     
-    def get_corp_report_list(self, corp_code, corp_df):
+    def get_corp_report_list(self, corp_code, corp_df, params):
         '''보고서 리스트를 출력하고 이 정보를 저장'''
-        response = requests.get(self.url_json, self.params)
+        url_json = "https://opendart.fss.or.kr/api/list.json"
+        response = requests.get(url_json, params)
         res = response.json()
         # 예외 처리: status 013(조회 데이터가 없음)
         if res ['status'] =='013' :
@@ -152,50 +151,69 @@ class Data_pipeline:
             return None
     
 def main():
-    # 필요 변수 설장
-    corp_code = '00126380'
-    params = {
+    pipeline = Data_pipeline()
+
+    # 기업 정보 저장
+    corp_df = get_corp_code()
+    print("기업 정보 현황 다운로드 ")
+    print("="*30)
+    corp_df.to_csv('stock_rag_chatbot/notebooks/data/corp_code_list.csv', index=False)
+    print("✅ corp_code_list.csv 파일 저장 완료. 한국 상장기업 저장완료")
+    # 상세 검색
+    # print(corp_df[corp_df['corp_name']=='삼성전자'])  # 찾고 싶은 기업의 이름을 넣으면 된다.
+
+    # 공시 보고서 제목 리스트 저장
+    print("최근 1분기 기업 공시 보고서 저장(제목 리스트)")
+    print("="*30)
+    corp_name = input("기업명을 입력하세요(예:삼성전자): ")
+    corp_code = corp_df[corp_df['corp_name']==corp_name]['corp_code'].values[0]
+    report_params = {
             'crtfc_key' : api_key,
             'corp_code' : corp_code ,
             'pblntf_ty' : 'A',
             'bgn_de' : '20250101' ## 사업보고서 시작일!
         }
-    
+
+    # 기업 공시 보고서
+    df_imsi = pipeline.get_corp_report_list(corp_code, corp_df, report_params)
+    # print(df_imsi) 
+    file_path = f"stock_rag_chatbot/notebooks/data/csv/{corp_name}_report_list_test.csv"
+    df_imsi.to_csv(file_path, index=False)
+    print(f"✅ {corp_name} 공시정보 제목 리스트 저장 완료. {corp_name}_report_list_test.csv")
+
     # 뉴스 크롤링 관련 변수
-    company_name = "삼성전자"
+    print("최근 1달 간 네이버 기업 뉴스 저장")
+    print("="*30)
     naver_id = os.getenv("naver_id")
     naver_api_key = os.getenv("naver_api_key")
 
-    pipeline = Data_pipeline(params=params)
-
-    # 기업 정보 저장 결과
-    corp_df = pipeline.get_corp_code()
-    print("기업 정보 현황 ")
-    print("="*14)
-    # print(corp_df) 
-    # 상세 검색
-    # print(corp_df[corp_df['corp_name']=='삼성전자'])  # 찾고 싶은 기업의 이름을 넣으면 된다.
-
-    # 기업 공시 보고서
-    df_imsi = pipeline.get_corp_report_list(corp_code, corp_df)
-    print("기업 공시 보고서 ")
-    print("="*14)
-    # print(df_imsi) 
-    file_path = f"stock_rag_chatbot/notebooks/data/csv/{corp_code}_report_list_test.csv"
-    df_imsi.to_csv(file_path, index=False)
+    # 뉴스데이터 수집(네이버)
+    naver_news_path = f"stock_rag_chatbot/notebooks/data/csv/{corp_name}_naver_news_test.csv"
+    naver_news_df = pipeline.get_naver_news_api(corp_name, naver_id, naver_api_key)
+    naver_news_df.to_csv(naver_news_path, index=False)
+    print(f"✅ {corp_name} 네이버 기업 뉴스 저장 완료. {corp_name}_naver_news_test.csv")
 
     # 주식 데이터 수집
-    corp_list = ['005930.KS', '000660.KS', '097230.KS']
+    print("1달 기업 주가 저장")
+    print("="*30)
+    corp_list = []
+    nums = int(input("몇개의 기업 주가 데이터를 수집할까요? (예:1): "))
+    for _ in range(nums):
+        stock_name = input("조회할 기업명을 입력하세요(예:삼성전자): ")
+        stock_code = corp_df[corp_df['corp_name']==stock_name]['stock_code'].values[0]
+        print(f"{stock_name}의 종목코드: {stock_code} / yfinance용 종목코드: {stock_code}.KS")
+        corp_list.append(f"{stock_code}.KS")
+        print("종목을 저장 완료 했습니다.")
+        print("-"*30)
+    print("수집할 기업 리스트:", corp_list)
     
-    for corp_name in corp_list:
-        stock_data_path = f"stock_rag_chatbot/notebooks/data/csv/{corp_name}_stock_data_test.csv"
-        stock_data = pipeline.collect_finance_data(corp_name= corp_name)
+    for corp_nm in corp_list:
+        stock_data_path = f"stock_rag_chatbot/notebooks/data/csv/{corp_nm}_stock_data_test.csv"
+        stock_data = pipeline.collect_finance_data(corp_name= corp_nm)
         stock_data.to_csv(stock_data_path, index=False)
+        print(f"✅ {corp_nm} 기업 주가 정보 저장 완료. {corp_nm}_stock_data_test.csv")
 
-    # 뉴스데이터 수집(네이버)
-    naver_news_path = f"stock_rag_chatbot/notebooks/data/csv/{company_name}_naver_news_test.csv"
-    naver_news_df = pipeline.get_naver_news_api(company_name, naver_id, naver_api_key)
-    naver_news_df.to_csv(naver_news_path, index=False)
+
     
 # 실행     
 main()
