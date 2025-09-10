@@ -23,6 +23,7 @@ import dart_fss as dart
 import requests
 import json
 import warnings
+import yfinance as yf
 warnings.filterwarnings('ignore')
 
 # 환경변수 설정
@@ -40,9 +41,9 @@ else:
     print("✅ DART API 키 설정 완료")
 
 class Data_pipeline:
-    def __init__(self, json_params):
+    def __init__(self, params):
         self.url_json = "https://opendart.fss.or.kr/api/list.json"
-        self.json_params = json_params
+        self.params = params
 
     def get_corp_code(self):
         '''DART API로 기업 코드, 기업명 저장'''
@@ -54,7 +55,7 @@ class Data_pipeline:
     
     def get_corp_report_list(self, corp_code, corp_df):
         '''보고서 리스트를 출력하고 이 정보를 저장'''
-        response = requests.get(self.url_json, json_params=self.json_params)
+        response = requests.get(self.url_json, self.params)
         res = response.json()
         # 예외 처리: status 013(조회 데이터가 없음)
         if res ['status'] =='013' :
@@ -62,17 +63,24 @@ class Data_pipeline:
         df_imsi = pd.DataFrame(res['list'])
         return df_imsi
     
+    def collect_finance_data(self, corp_name):
+        stock = yf.Ticker(corp_name)   # 주식 데이터 다운
+        # info = stock.info
+        stock_data = stock.history(period="1mo")   # 한달 간 주가 데이터
+        stock_data = pd.DataFrame(stock_data)
+        return stock_data
+    
 def main():
     # 필요 변수 설장
     corp_code = '00126380'
-    json_params = {
+    params = {
             'crtfc_key' : api_key,
             'corp_code' : corp_code ,
             'pblntf_ty' : 'A',
             'bgn_de' : '20250101' ## 사업보고서 시작일!
         }
     
-    pipeline = Data_pipeline(json_params)
+    pipeline = Data_pipeline(params=params)
 
     # 기업 정보 저장 결과
     corp_df = pipeline.get_corp_code()
@@ -88,6 +96,14 @@ def main():
     print("="*14)
     # print(df_imsi) 
     file_path = f"stock_rag_chatbot/notebooks/data/csv/{corp_code}_report_list_test.csv"
+
+    # 주식 데이터 수집
+    corp_list = ['005930.KS', '000660.KS', '035420.KS']
+    
+    for corp_name in corp_list:
+        stock_data_path = f"stock_rag_chatbot/notebooks/data/csv/{corp_name}_stock_data_test.csv"
+        stock_data = pipeline.collect_finance_data(corp_name= corp_name)
+        stock_data.to_csv(stock_data_path, index=False)
 
     df_imsi.to_csv(file_path, index=False)
 # 실행     
